@@ -1,48 +1,58 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
+namspace App\Services;
 
-return new class extends Migration {
-    public function up(): void
-    {
-        Schema::create('upload_sessions', function (Blueprint $table) {
-            $table->id();
+use App\Models\ImportJob;
+use Illuminate\Support\Facades\DB;
 
-            // which user started the upload
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+class CsvImportService {
+    public function process(ImportJob $job): void {
+        // Implementation of CSV import processing
+        $job->update(['status' => 'processing']);
 
-            // Unique session identifier for syncing chunks
-            $table->uuid('session_uuid')->unique();
+        $handle = fopen(storage_path('app/' . $job->file_path), 'r');
+        if(!$handle) {
+            throw new \Exception('Unable to open CSV file.');
+        }
 
-            // Original file info
-            $table->string('original_filename');
-            $table->unsignedBigInteger('total_size');
+        $header = fgetcsv($handle); // Read header row
 
-            // Upload tracking
-            $table->integer('total_chunks');
-            $table->integer('uploaded_chunks')->default(0);
+        DB::beginTransaction();
 
-            // Integrity check
-            $table->string('checksum')->nullable();
+        try {
+            while(($row = fgetcsv($handle)) !== false) {
+                try {
+                    $data = array_combine($header, $row);
 
-            // Status lifecycle
-            $table->enum('status', [
-                'initiated',
-                'uploading',
-                'completed',
-                'failed'
-            ])->default('initiated');
+                    // User::updateOrCreate([...])
 
-            $table->timestamps();
+                    $job->updateProgress(1, 0);
+                } catch (\Exception $e) {
+                    $job->updateProgress(0, 1);
+                    $errors = $job->errors ?? [];
+                    $errors[] = [
+                        'row' => $row,
+                        'error' => $e->getMessage(),
+                    ];
 
-            $table->index('status');
-        });
+                    $job->update(['errors' => $errors]);
+                }
+            }
+
+            DB::commit();
+            fclose($handle);
+            $job->update(['status' => 'completed']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            fclose($handle);
+            
+            \Log::error($e->getMessage());
+
+            $job->update([
+                'status' => 'failed',
+                'errors' => array_merge($job->errors ?? [], [['error' => $e->getMessage()]]),
+            ]);
+        }
     }
-
-    public function down(): void
-    {
-        Schema::dropIfExists('upload_sessions');
-    }
-};
+}
