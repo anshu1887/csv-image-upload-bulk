@@ -40,6 +40,6 @@ class CsvImportService {
             'medium_path' => $mediumPath,
         ]);
         
-        
+            
     }
 }
