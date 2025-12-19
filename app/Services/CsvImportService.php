@@ -1,6 +1,6 @@
 <?php
 
-namspace App\Services;
+namespace App\Services;
 
 use App\Models\ImportJob;
 use Illuminate\Support\Facades\DB;

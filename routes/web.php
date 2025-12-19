@@ -4,6 +4,8 @@ use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\UploadController;
+use Livewire\CsvImporter;
+use Livewire\ImageUploader;
 
 
 /* Route::get('/', function () {
@@ -12,7 +14,9 @@ use App\Http\Controllers\UploadController;
 
 Route::get('/', function () {
     return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+})
+// ->middleware(['auth', 'verified'])
+->name('dashboard');
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -20,13 +24,8 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 
-Route::middleware('auth')->group(function () {
-    // CSV Import
-    Route::post('/import/csv', [ImportController::class, 'store']);
+Route::get('/csv-import', CsvImporter::class)->name('csv.import');
+Route::get('/image-upload', ImageUploader::class)->name('image.upload');
 
-    // Chunked Upload
-    Route::post('/upload/start', [UploadController::class, 'start']);
-    Route::post('/upload/chunk', [UploadController::class, 'uploadChunk']);
-});
 
 require __DIR__.'/auth.php';

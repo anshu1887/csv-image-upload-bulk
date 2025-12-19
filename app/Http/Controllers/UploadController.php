@@ -2,15 +2,17 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Models\UploadChunk;
 use App\Models\UploadSession;
+use App\Models\UploadChunk;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 
 class UploadController extends Controller
 {
 
     /**
-     * Start upload session
+     * Start a new upload session
      */
     public function start(Request $request)
     {
@@ -34,7 +36,7 @@ class UploadController extends Controller
     }
 
     /**
-     * Upload a single chunk
+     * Upload single chunk (idempotent, resume-safe)
      */
     public function uploadChunk(Request $request)
     {
@@ -48,22 +50,78 @@ class UploadController extends Controller
         $session = UploadSession::where('session_uuid', $request->session_uuid)
             ->firstOrFail();
 
-        // Store chunk
         $path = $request->file('chunk')->store('chunks');
 
-        UploadChunk::create([
-            'upload_session_id' => $session->id,
-            'chunk_index' => $request->chunk_index,
-            'chunk_size' => $request->file('chunk')->getSize(),
-            'path' => $path,
-            'checksum' => $request->checksum,
-        ]);
+        UploadChunk::firstOrCreate(
+            [
+                'upload_session_id' => $session->id,
+                'chunk_index' => $request->chunk_index,
+            ],
+            [
+                'chunk_size' => $request->file('chunk')->getSize(),
+                'path' => $path,
+                'checksum' => $request->checksum,
+            ]
+        );
 
         $session->incrementChunks();
 
         return response()->json([
-            'uploaded_chunks' => $session->uploaded_chunks,
+            'message' => 'Chunk uploaded',
+        ]);
+    }
+
+    /**
+     * Resume support – get uploaded chunks
+     */
+    public function status(Request $request)
+    {
+        $request->validate([
+            'session_uuid' => 'required|uuid',
+        ]);
+
+        $session = UploadSession::where('session_uuid', $request->session_uuid)
+            ->with('chunks')
+            ->firstOrFail();
+
+        return response()->json([
+            'uploaded_chunks' => $session->chunks->pluck('chunk_index'),
             'total_chunks' => $session->total_chunks,
+            'status' => $session->status,
+        ]);
+    }
+
+    /**
+     * Merge all chunks into final file
+     */
+    public function merge(Request $request)
+    {
+        $request->validate([
+            'session_uuid' => 'required|uuid',
+        ]);
+
+        $session = UploadSession::where('session_uuid', $request->session_uuid)
+            ->with('chunks')
+            ->firstOrFail();
+
+        $finalPath = 'uploads/' . $session->original_filename;
+        $finalFile = Storage::path($finalPath);
+
+        file_put_contents($finalFile, '');
+
+        foreach ($session->chunks()->orderBy('chunk_index')->get() as $chunk) {
+            file_put_contents(
+                $finalFile,
+                file_get_contents(Storage::path($chunk->path)),
+                FILE_APPEND
+            );
+        }
+
+        $session->update(['status' => 'completed']);
+
+        return response()->json([
+            'message' => 'File merged successfully',
+            'path' => $finalPath,
         ]);
     }
 
