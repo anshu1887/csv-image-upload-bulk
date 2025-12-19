@@ -39,7 +39,6 @@ class CsvImportService {
             'thumbnail_path' => $thumbnailPath,
             'medium_path' => $mediumPath,
         ]);
-        
-            
     }
+    
 }
